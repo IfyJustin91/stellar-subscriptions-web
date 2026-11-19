@@ -141,12 +141,15 @@ const TOKEN_ERRORS: ErrorTable = {};
 
 type Raw = Record<string, unknown>;
 
+/** Error code used when a bigint return value exceeds Number.MAX_SAFE_INTEGER. */
+export const OVERFLOW_CODE = -1;
+
 /** u64 / u32 native values arrive as bigint or number. */
 export function toNumber(value: unknown): number {
   if (typeof value === "number") return value;
   if (typeof value === "bigint") {
     if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
-      throw new ContractError("A contract value was too large to display.", value.toString());
+      throw new ContractError("A contract value was too large to display.", value.toString(), OVERFLOW_CODE);
     }
     return Number(value);
   }
