@@ -17,11 +17,14 @@
   "dependencies": {
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^17.1.0",
+    "@testing-library/dom": "^10.4.2",
     "date-fns": "^4.4.0",
+    "msw": "^3.0.7",
     "next": "14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^2.15.0"
+    "recharts": "^2.15.0",
+    "vitest-axe": "^0.1.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

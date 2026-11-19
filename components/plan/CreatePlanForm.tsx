@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { TxProgress } from '@/components/tx/TxProgress';
+import { TxProgress } from '@/components/ui/TxProgress';
 import { TokenSelect } from '@/components/plan/TokenSelect';
 import { useTx } from '@/hooks/useTx';
-import { PLAN_ERRORS } from '@/lib/errors';
-import { nativeTokenId, type TokenInfo } from '@/lib/contracts';
+import { invalidatePlans } from '@/hooks/usePlans';
+import { createPlan, nativeTokenId, type TokenInfo } from '@/lib/contracts';
 
 export interface CreatePlanFormProps {
   /** Called after the create-plan transaction succeeds. */
@@ -141,19 +141,18 @@ export function CreatePlanForm({ onCreated }: CreatePlanFormProps) {
     }
 
     try {
-      const result = await run({
-        contractErrors: PLAN_ERRORS,
-        build: async (client) =>
-          client.createPlan({
-            merchant: merchant.trim(),
-            token: token.tokenId,
-            amountPerPeriod,
-            periodDays,
-            defaultCap,
-          }),
-      });
-      if (result && typeof result === 'object' && 'planId' in result) {
-        onCreated?.(String((result as { planId: unknown }).planId));
+      const result = await run((ctx) =>
+        createPlan(ctx, {
+          name: '',
+          token: token.tokenId,
+          amountPerPeriod,
+          intervalLedgers: periodDays * 17280,
+          defaultCap,
+        }),
+      );
+      if (result !== null) {
+        invalidatePlans();
+        onCreated?.(String(result.id));
       }
     } catch {
       // Errors are surfaced through `error` from useTx.
