@@ -5,6 +5,7 @@ import type { Plan } from "@/types";
 import { PlanBadge } from "./PlanBadge";
 
 export function PlanCard({ plan }: { plan: Plan }) {
+  const intervalLabel = describeInterval(plan.intervalLedgers);
   return (
     <Link href={`/plans/${plan.id}`} className="card group flex flex-col gap-4 p-5 transition hover:border-brand/50">
       <div className="flex items-start justify-between gap-3">
@@ -13,7 +14,7 @@ export function PlanCard({ plan }: { plan: Plan }) {
       </div>
       <p className="text-2xl font-semibold text-fg">
         <TokenAmount token={plan.token} value={plan.amountPerPeriod} />
-        <span className="ml-1 text-sm font-normal text-muted">{describeInterval(plan.intervalLedgers)}</span>
+        <span className="ml-1 text-sm font-normal text-muted">{intervalLabel}</span>
       </p>
       <dl className="mt-auto grid grid-cols-2 gap-2 text-xs text-muted">
         <div>

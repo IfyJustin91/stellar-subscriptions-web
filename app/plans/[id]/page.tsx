@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePlan } from "@/hooks/usePlans";
 import { useToken } from "@/hooks/useToken";
+import { NotDeployedError } from "@/lib/contracts";
 import { approxDuration, describeInterval, formatLedgers, maxCharges, pluralize } from "@/lib/format";
 import { AddressLink } from "@/components/ui/AddressLink";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -18,6 +19,25 @@ export default function PlanDetailPage({ params }: { params: { id: string } }) {
 
   if (id === null) {
     return <ErrorState error={new Error(`"${params.id}" isn't a plan number.`)} title="Plan not found" />;
+  }
+  if (plan.error instanceof NotDeployedError) {
+    return (
+      <div className="space-y-4">
+        <Link href="/plans" className="text-sm text-muted hover:text-fg">
+          ← All plans
+        </Link>
+        <div className="card space-y-3 p-6">
+          <h1 className="text-2xl font-semibold text-fg">Not deployed on mainnet yet</h1>
+          <p className="text-sm text-muted">
+            This plan can&apos;t be loaded because the contracts aren&apos;t deployed on mainnet yet. Try the testnet
+            instead.
+          </p>
+          <Link href="/plans" className="inline-block text-sm font-medium text-accent hover:underline">
+            Browse plans on testnet →
+          </Link>
+        </div>
+      </div>
+    );
   }
   if (plan.error) return <ErrorState error={plan.error} title="Couldn't load this plan" onRetry={plan.reload} />;
   if (!plan.data) return <LoadingBlock label="Loading plan" />;
