@@ -6,6 +6,24 @@ import { PlanBadge } from "./PlanBadge";
 
 export function PlanCard({ plan }: { plan: Plan }) {
   const intervalLabel = describeInterval(plan.intervalLedgers);
+const LEDGER_SECONDS = 5;
+
+export function PlanCard({
+  plan,
+  latestLedger,
+  latestClosedAt,
+}: {
+  plan: Plan;
+  latestLedger?: number | null;
+  latestClosedAt?: number | null;
+}) {
+  const created =
+    latestLedger != null && latestClosedAt != null
+      ? new Date(latestClosedAt - (latestLedger - plan.createdAt) * LEDGER_SECONDS * 1000)
+      : null;
+  const createdLabel = created
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(created)
+    : null;
   return (
     <Link href={`/plans/${plan.id}`} className="card group flex flex-col gap-4 p-5 transition hover:border-brand/50">
       <div className="flex items-start justify-between gap-3">
@@ -31,6 +49,14 @@ export function PlanCard({ plan }: { plan: Plan }) {
           <dt>Merchant</dt>
           <dd className="font-mono text-fg">{shortAddress(plan.merchant)}</dd>
         </div>
+        {createdLabel && (
+          <div className="col-span-2">
+            <dt>Created</dt>
+            <dd className="text-fg" title="Estimated from ledger sequence; approximate">
+              ≈ {createdLabel}
+            </dd>
+          </div>
+        )}
       </dl>
     </Link>
   );

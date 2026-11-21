@@ -4,7 +4,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { useMerchantSubscriptions } from '@/hooks/useMerchantSubscriptions';
 import { useLedger } from '@/hooks/useLedger';
 import { useTx } from '@/hooks/useTx';
-import { charge } from '@/lib/contract';
+import { useWallet } from '@/hooks/useWallet';
+import { charge, isChargeable } from '@/lib/contract';
 import { dueSubscriptions } from '@/lib/subscriptions';
 import type { Subscription } from '@/lib/types';
 
@@ -49,6 +50,7 @@ function isUserDeclined(error: unknown): boolean {
 export function ChargeAllButton() {
   const { subscriptions, isLoading: subsLoading } = useMerchantSubscriptions();
   const { ledger, isLoading: ledgerLoading } = useLedger();
+  const { network } = useWallet();
   const { run } = useTx();
 
   const [state, setState] = useState<RunState>({ phase: 'idle' });
@@ -97,10 +99,30 @@ export function ChargeAllButton() {
     }
 
     const results: ChargeResult[] = [];
-    const total = due.length;
 
+    // Pre-filter chargeable subscriptions in parallel so we don't serialise
+    // one Soroban simulation per subscription before charging.
+    const chargeableFlags = await Promise.all(
+      due.map((sub) => isChargeable(network, sub.id)),
+    );
+
+    const toCharge: Subscription[] = [];
     for (let i = 0; i < due.length; i++) {
-      const sub = due[i];
+      if (chargeableFlags[i]) {
+        toCharge.push(due[i]);
+      } else {
+        results.push({
+          id: due[i].id,
+          status: 'skipped',
+          reason: 'Not chargeable',
+        });
+      }
+    }
+
+    const total = toCharge.length;
+
+    for (let i = 0; i < toCharge.length; i++) {
+      const sub = toCharge[i];
       setState({ phase: 'running', current: i + 1, total });
 
       try {
@@ -109,9 +131,9 @@ export function ChargeAllButton() {
       } catch (error) {
         if (isUserDeclined(error)) {
           results.push({ id: sub.id, status: 'skipped', reason: 'Signature declined' });
-          for (let j = i + 1; j < due.length; j++) {
+          for (let j = i + 1; j < toCharge.length; j++) {
             results.push({
-              id: due[j].id,
+              id: toCharge[j].id,
               status: 'skipped',
               reason: 'Not attempted (run stopped)',
             });
@@ -127,7 +149,7 @@ export function ChargeAllButton() {
     }
 
     setState({ phase: 'done', results });
-  }, [due, run]);
+  }, [due, network, run]);
 
   const handleCloseSummary = useCallback(() => {
     setState({ phase: 'idle' });

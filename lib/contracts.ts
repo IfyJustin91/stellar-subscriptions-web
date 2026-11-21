@@ -13,9 +13,9 @@ import {
   NETWORKS,
   arg,
   getEventWindow,
-  getServer,
   invokeContract,
   readContract,
+  walkEvents,
   type ErrorTable,
   type WriteCtx,
 } from "@/lib/stellar";
@@ -141,12 +141,15 @@ const TOKEN_ERRORS: ErrorTable = {};
 
 type Raw = Record<string, unknown>;
 
+/** Error code used when a bigint return value exceeds Number.MAX_SAFE_INTEGER. */
+export const OVERFLOW_CODE = -1;
+
 /** u64 / u32 native values arrive as bigint or number. */
 export function toNumber(value: unknown): number {
   if (typeof value === "number") return value;
   if (typeof value === "bigint") {
     if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
-      throw new ContractError("A contract value was too large to display.", value.toString());
+      throw new ContractError("A contract value was too large to display.", value.toString(), OVERFLOW_CODE);
     }
     return Number(value);
   }
@@ -278,7 +281,37 @@ export async function getRegistryStats(network: Network): Promise<RegistryStats>
 
 // ---- token reads ----
 
+/** Cap on cached token metadata so a page rendering many tokens can't grow it forever. */
+export const TOKEN_CACHE_LIMIT = 100;
+
+/**
+ * A `Map` used as an LRU: insertion order is recency order, so the first key
+ * is the least recently used. `get` refreshes recency; `set` evicts the oldest
+ * entry once the cap is reached.
+ */
 const tokenCache = new Map<string, Promise<TokenInfo>>();
+/** In-flight token reads, so concurrent callers share one set of network calls. */
+const tokenInflight = new Map<string, Promise<TokenInfo>>();
+
+function cacheGet(key: string): Promise<TokenInfo> | undefined {
+  const cached = tokenCache.get(key);
+  if (cached !== undefined) {
+    // Re-insert so this key becomes the most recently used.
+    tokenCache.delete(key);
+    tokenCache.set(key, cached);
+  }
+  return cached;
+}
+
+function cacheSet(key: string, value: Promise<TokenInfo>): void {
+  tokenCache.delete(key);
+  tokenCache.set(key, value);
+  while (tokenCache.size > TOKEN_CACHE_LIMIT) {
+    const oldest = tokenCache.keys().next().value;
+    if (oldest === undefined) break;
+    tokenCache.delete(oldest);
+  }
+}
 
 /** A SEP-41 contract id: `C` followed by 55 base-32 characters. */
 const CONTRACT_ID_RE = /^C[A-Z2-7]{55}$/;
@@ -306,7 +339,7 @@ export function getTokenInfo(network: Network, token: string): Promise<TokenInfo
     );
   }
   const key = `${network}:${contractId}`;
-  let cached = tokenCache.get(key);
+  let cached = cacheGet(key);
   if (!cached) {
     cached = (async () => {
       let symbol: string;
@@ -329,9 +362,39 @@ export function getTokenInfo(network: Network, token: string): Promise<TokenInfo
       return { contractId, symbol: display, name, decimals: Number(decimals) };
     })();
     cached.catch(() => tokenCache.delete(key));
-    tokenCache.set(key, cached);
+    cacheSet(key, cached);
   }
   return cached;
+  const cached = tokenCache.get(key);
+  if (cached) return cached;
+  const inflight = tokenInflight.get(key);
+  if (inflight) return inflight;
+  const request = (async () => {
+    let symbol: string;
+    let name: string;
+    let decimals: number;
+    try {
+      [symbol, name, decimals] = await Promise.all([
+        readContract<string>(network, contractId, "symbol", [], TOKEN_ERRORS),
+        readContract<string>(network, contractId, "name", [], TOKEN_ERRORS),
+        readContract<number>(network, contractId, "decimals", [], TOKEN_ERRORS),
+      ]);
+    } catch (err) {
+      throw new ContractError(
+        "This token couldn't be read. Check that the address is a SEP-41 token contract on this network.",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+    // The native asset's SAC reports "native"; people know it as XLM.
+    const display = symbol === "native" ? "XLM" : symbol;
+    return { contractId, symbol: display, name, decimals: Number(decimals) };
+  })();
+  tokenInflight.set(key, request);
+  request
+    .catch(() => tokenCache.delete(key))
+    .finally(() => tokenInflight.delete(key));
+  tokenCache.set(key, request);
+  return request;
 }
 
 export async function getTokenBalance(network: Network, token: string, owner: string): Promise<bigint> {
@@ -442,6 +505,8 @@ export interface CreatePlanInput {
   defaultCap: bigint;
 }
 
+// Callers must call `invalidatePlans` (hooks/usePlans.ts) after this succeeds:
+// creating a plan changes the plan cache.
 export async function createPlan(ctx: WriteCtx, input: CreatePlanInput): Promise<TxResult & { id: number }> {
   const result = await invokeContract(
     ctx,
@@ -463,6 +528,9 @@ export async function createPlan(ctx: WriteCtx, input: CreatePlanInput): Promise
 /**
  * Close a plan to new subscribers. Existing subscriptions are untouched: they
  * keep charging exactly as their subscribers authorized. This cannot be undone.
+ *
+ * Callers must call `invalidatePlans` (hooks/usePlans.ts) after this succeeds:
+ * deactivating a plan changes the plan cache.
  */
 export function deactivatePlan(ctx: WriteCtx, planId: number): Promise<TxResult> {
   return invokeContract(
@@ -476,27 +544,12 @@ export function deactivatePlan(ctx: WriteCtx, planId: number): Promise<TxResult>
 
 // ---- events ----
 
-const PAGE_SIZE = 200;
-/**
- * RPC nodes scan roughly 10,000 ledgers per request, so a full ~7-day window
- * takes about 13 pages. This bounds the walk if a node behaves differently.
- */
-const MAX_PAGES = 40;
 /**
  * The node's oldest retained ledger advances every few seconds; starting a
  * little inside the window avoids "startLedger must be within the ledger
  * range" when it moves between our two requests.
  */
 const WINDOW_MARGIN = 200;
-
-/**
- * The ledger an events cursor points at. Cursors are
- * `<TOID>-<event index>`, and a TOID keeps the ledger sequence in its top 32
- * bits.
- */
-export function cursorLedger(cursor: string): number {
-  return Number(BigInt(cursor.split("-")[0]) >> 32n);
-}
 
 export function decodeChargeEvent(event: rpc.Api.EventResponse): ChargeEvent {
   const data = scValToNative(event.value) as Raw;
@@ -544,16 +597,8 @@ export async function getChargeEvents(
   ];
 
   const fromLedger = oldest + WINDOW_MARGIN;
-  const events: ChargeEvent[] = [];
-  let page = await server.getEvents({ startLedger: fromLedger, filters, limit: PAGE_SIZE });
-  events.push(...page.events.map(decodeChargeEvent));
-  // A short or even empty page only means this request's scan range ended,
-  // so keep following the cursor until it reaches the latest ledger.
-  for (let n = 1; n < MAX_PAGES && cursorLedger(page.cursor) < page.latestLedger; n++) {
-    page = await server.getEvents({ cursor: page.cursor, filters, limit: PAGE_SIZE });
-    events.push(...page.events.map(decodeChargeEvent));
-  }
-  return { events, fromLedger, latestLedger: page.latestLedger };
+  const { events, latestLedger } = await walkEvents(server, filters, decodeChargeEvent, fromLedger);
+  return { events, fromLedger, latestLedger };
 }
 
 /**
