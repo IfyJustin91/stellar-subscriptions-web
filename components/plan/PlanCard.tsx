@@ -4,6 +4,8 @@ import { TokenAmount } from "@/components/ui/TokenAmount";
 import type { Plan } from "@/types";
 import { PlanBadge } from "./PlanBadge";
 
+export function PlanCard({ plan }: { plan: Plan }) {
+  const intervalLabel = describeInterval(plan.intervalLedgers);
 const LEDGER_SECONDS = 5;
 
 export function PlanCard({
@@ -30,7 +32,7 @@ export function PlanCard({
       </div>
       <p className="text-2xl font-semibold text-fg">
         <TokenAmount token={plan.token} value={plan.amountPerPeriod} />
-        <span className="ml-1 text-sm font-normal text-muted">{describeInterval(plan.intervalLedgers)}</span>
+        <span className="ml-1 text-sm font-normal text-muted">{intervalLabel}</span>
       </p>
       <dl className="mt-auto grid grid-cols-2 gap-2 text-xs text-muted">
         <div>

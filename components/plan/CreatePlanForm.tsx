@@ -97,6 +97,11 @@ export function CreatePlanForm({ onCreated }: CreatePlanFormProps) {
 
   const tokenBlocked = token.error !== null || token.info === null;
 
+  const capTooSmall =
+    defaultCap !== null &&
+    amountPerPeriod !== null &&
+    defaultCap < amountPerPeriod;
+
   const canSubmit =
     !tokenBlocked &&
     amountPerPeriod !== null &&
@@ -104,6 +109,7 @@ export function CreatePlanForm({ onCreated }: CreatePlanFormProps) {
     charges !== null &&
     periodDays !== null &&
     merchant.trim() !== '' &&
+    !capTooSmall &&
     phase !== 'signing' &&
     phase !== 'submitting';
 
@@ -133,6 +139,10 @@ export function CreatePlanForm({ onCreated }: CreatePlanFormProps) {
     }
     if (defaultCap === null) {
       setFormError('The cap could not be computed. Check the amount and number of charges.');
+      return;
+    }
+    if (capTooSmall) {
+      setFormError('Cap must cover at least one charge');
       return;
     }
     if (merchant.trim() === '') {
