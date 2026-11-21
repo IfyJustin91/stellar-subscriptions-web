@@ -49,6 +49,9 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
 
 export const DEFAULT_NETWORK: Network = process.env.NEXT_PUBLIC_DEFAULT_NETWORK === "mainnet" ? "mainnet" : "testnet";
 
+/** Approximate seconds per ledger on Stellar. */
+export const LEDGER_SECONDS = 5;
+
 export const explorerTxUrl = (network: Network, hash: string) => `${NETWORKS[network].explorer}/tx/${hash}`;
 export const explorerAccountUrl = (network: Network, account: string) =>
   `${NETWORKS[network].explorer}/account/${account}`;

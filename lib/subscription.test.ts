@@ -179,12 +179,21 @@ describe("due subscriptions", () => {
 describe("display order", () => {
   it("puts active first, then paused, then ended, newest first within each", () => {
     const ordered = sortForDisplay([
-      sub({ id: 1, status: SubStatus.Cancelled }),
-      sub({ id: 2, status: SubStatus.Paused }),
-      sub({ id: 3 }),
-      sub({ id: 4 }),
-      sub({ id: 5, status: SubStatus.Exhausted }),
+      sub({ id: 1, status: SubStatus.Cancelled, nextChargeLedger: 100 }),
+      sub({ id: 2, status: SubStatus.Paused, nextChargeLedger: 200 }),
+      sub({ id: 3, nextChargeLedger: 300 }),
+      sub({ id: 4, nextChargeLedger: 400 }),
+      sub({ id: 5, status: SubStatus.Exhausted, nextChargeLedger: 500 }),
     ]);
     expect(ordered.map((s) => s.id)).toEqual([4, 3, 2, 5, 1]);
+  });
+
+  it("breaks ties within a rank by ascending next charge ledger, not id", () => {
+    const ordered = sortForDisplay([
+      sub({ id: 1, nextChargeLedger: 900 }),
+      sub({ id: 2, nextChargeLedger: 300 }),
+      sub({ id: 3, nextChargeLedger: 600 }),
+    ]);
+    expect(ordered.map((s) => s.id)).toEqual([2, 3, 1]);
   });
 });

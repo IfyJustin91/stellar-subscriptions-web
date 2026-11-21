@@ -101,8 +101,8 @@ export function committedByToken(subs: Subscription[]): Map<string, bigint> {
   return totals;
 }
 
-/** Live subscriptions first (active, then paused), then ended ones, newest first. */
+/** Live subscriptions first (active, then paused), then ended ones, soonest charge first. */
 export function sortForDisplay(subs: Subscription[]): Subscription[] {
   const rank = (s: Subscription) => (s.status === SubStatus.Active ? 0 : s.status === SubStatus.Paused ? 1 : 2);
-  return [...subs].sort((a, b) => rank(a) - rank(b) || b.id - a.id);
+  return [...subs].sort((a, b) => rank(a) - rank(b) || a.nextChargeLedger - b.nextChargeLedger);
 }

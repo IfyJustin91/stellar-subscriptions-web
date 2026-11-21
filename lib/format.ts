@@ -8,9 +8,9 @@
  */
 
 import { formatDuration, intervalToDuration, type Duration } from "date-fns";
+import { LEDGER_SECONDS } from "@/lib/stellar";
 
-/** Approximate seconds per ledger on Stellar. */
-export const LEDGER_SECONDS = 5;
+export { LEDGER_SECONDS };
 
 export interface IntervalPreset {
   label: string;
