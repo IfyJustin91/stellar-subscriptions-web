@@ -9,16 +9,28 @@ import { formatAmount, isValidStellarAddress, parseAmount } from "./format";
 
 const decimalsArb = fc.integer({ min: 0, max: 18 });
 
+// Arbitrary positive raw amounts (unbounded above).
+const amountArb = fc.bigInt({ min: 1n });
+
 // Raw amounts up to a very large magnitude (well beyond typical token supply).
-const amountArb = fc.bigInt({ min: 1n, max: 10n ** 30n });
+const boundedAmountArb = fc.bigInt({ min: 1n, max: 10n ** 30n });
 
 const roundTrip = (value: bigint, decimals: number): bigint | null =>
   parseAmount(formatAmount(value, decimals), decimals);
 
 describe("formatAmount / parseAmount round-trip", () => {
-  it("holds for generated amounts and decimals", () => {
+  it("holds for arbitrary bigints and decimals without precision loss", () => {
     fc.assert(
       fc.property(amountArb, decimalsArb, (value, decimals) => {
+        expect(roundTrip(value, decimals)).toBe(value);
+      }),
+      { numRuns: 1000 },
+    );
+  });
+
+  it("holds for generated amounts and decimals", () => {
+    fc.assert(
+      fc.property(boundedAmountArb, decimalsArb, (value, decimals) => {
         expect(roundTrip(value, decimals)).toBe(value);
       }),
       { numRuns: 500 },
@@ -73,7 +85,7 @@ describe("formatAmount / parseAmount round-trip", () => {
     let smallest: bigint | null = null;
     try {
       fc.assert(
-        fc.property(amountArb, decimalsArb, (value, decimals) => {
+        fc.property(boundedAmountArb, decimalsArb, (value, decimals) => {
           expect(broken(value, decimals)).toBe(value);
         }),
         { numRuns: 100 },

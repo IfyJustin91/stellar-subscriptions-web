@@ -1,27 +1,85 @@
 import Link from "next/link";
+import { useMemo } from "react";
+import { memo } from "react";
 import { Subscription } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { useLedger } from "@/lib/ledger";
+import { usePlan } from "@/lib/hooks/usePlan";
 import CancelButton from "./CancelButton";
 import PauseButton from "./PauseButton";
 
 type Props = {
   subscription: Subscription;
+  currentLedger?: number;
 };
 
-export default function SubscriptionCard({ subscription }: Props) {
+/**
+ * Buckets the remaining ledgers so that the comparator only treats a ledger
+ * tick as a change when the displayed countdown text would actually change.
+ */
+function countdownBucket(
+  nextChargeLedger: number | undefined,
+  currentLedger: number | undefined,
+): number {
+  if (nextChargeLedger === undefined || currentLedger === undefined) {
+    return 0;
+  }
+  return Math.max(0, nextChargeLedger - currentLedger);
+}
+
+export function arePropsEqual(prev: Props, next: Props): boolean {
+  const a = prev.subscription;
+  const b = next.subscription;
+
+  if (
+    a.id !== b.id ||
+    a.planName !== b.planName ||
+    a.merchantName !== b.merchantName ||
+    a.amount !== b.amount ||
+    a.currency !== b.currency ||
+    a.interval !== b.interval ||
+    a.nextChargeAt !== b.nextChargeAt ||
+    a.status !== b.status
+  ) {
+    return false;
+  }
+
+  return (
+    countdownBucket(a.nextChargeLedger, prev.currentLedger) ===
+    countdownBucket(b.nextChargeLedger, next.currentLedger)
+  );
+}
+
+function SubscriptionCard({ subscription }: Props) {
   const {
     id,
+    planId,
     planName,
     merchantName,
     amount,
     currency,
     interval,
     nextChargeAt,
+    startLedger,
     status,
+    address,
+    network,
   } = subscription;
+
+  const { currentLedger } = useLedger();
+  const { data: plan, isLoading, error } = usePlan(
+    planId !== 0 ? planId : null,
+  );
 
   const isActive = status === "active";
   const isPaused = status === "paused";
+  const isFutureStart = currentLedger < startLedger;
+  const startsIn = formatApproxDuration(startLedger - currentLedger);
+
+  const sortedSubscription = useMemo(
+    () => sortForDisplay([subscription]),
+    [subscription, address, network],
+  );
 
   return (
     <article
@@ -42,6 +100,15 @@ export default function SubscriptionCard({ subscription }: Props) {
             </Link>
           </h3>
           <p className="text-sm text-gray-600">{merchantName}</p>
+          {planId !== 0 && (
+            <p className="text-xs text-gray-500">
+              {isLoading
+                ? "Loading plan…"
+                : error
+                  ? "Plan unavailable"
+                  : plan?.name}
+            </p>
+          )}
         </div>
         <span
           className={
@@ -66,7 +133,11 @@ export default function SubscriptionCard({ subscription }: Props) {
         <div>
           <dt className="text-gray-500">Next charge</dt>
           <dd className="font-medium text-gray-900">
-            {isActive ? formatDate(nextChargeAt) : "—"}
+            {isFutureStart
+              ? `Starts in ~${startsIn}`
+              : isActive
+                ? formatDate(nextChargeAt)
+                : "—"}
           </dd>
         </div>
       </dl>
@@ -84,3 +155,8 @@ export default function SubscriptionCard({ subscription }: Props) {
     </article>
   );
 }
+
+const MemoizedSubscriptionCard = memo(SubscriptionCard, arePropsEqual);
+
+export { MemoizedSubscriptionCard as SubscriptionCard };
+export default MemoizedSubscriptionCard;

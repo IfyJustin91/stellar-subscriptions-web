@@ -1,20 +1,62 @@
 "use client";
 
+import type { Metadata } from "next";
 import Link from "next/link";
 import { usePlan } from "@/hooks/usePlans";
 import { useToken } from "@/hooks/useToken";
 import { approxDuration, describeInterval, formatLedgers, maxCharges, pluralize } from "@/lib/format";
-import { AddressLink } from "@/components/ui/AddressLink";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingBlock } from "@/components/ui/Spinner";
 import { TokenAmount } from "@/components/ui/TokenAmount";
 import { PlanBadge } from "@/components/plan/PlanBadge";
 import { SubscribeForm } from "@/components/subscribe/SubscribeForm";
+import { useWallet } from "@/hooks/useWallet";
+import { explorerAccountUrl, explorerContractUrl } from "@/lib/stellar";
+
+export function sanitizePlanName(name: string): string {
+  return name.replace(/[<>]/g, "");
+}
+
+const DEFAULT_OG_IMAGE = "/og/plan.png";
+
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const id = /^\d+$/.test(params.id) ? Number(params.id) : null;
+  if (id === null) {
+    return { title: "Plan not found" };
+  }
+
+  try {
+    const plan = await fetchPlan(id);
+    const title = plan.name;
+    const description = `Subscribe to ${plan.name} for ${formatAmount(plan.amountPerPeriod)} ${plan.tokenSymbol} ${describeInterval(plan.intervalLedgers)}`;
+    const image = plan.imageUrl ?? DEFAULT_OG_IMAGE;
+
+    return {
+      title,
+      description,
+      openGraph: {
+        title,
+        description,
+        type: "website",
+        images: [{ url: image, alt: plan.name }],
+      },
+      twitter: {
+        card: "summary_large_image",
+        title,
+        description,
+        images: [image],
+      },
+    };
+  } catch {
+    return { title: "Plan not found" };
+  }
+}
 
 export default function PlanDetailPage({ params }: { params: { id: string } }) {
   const id = /^\d+$/.test(params.id) ? Number(params.id) : null;
   const plan = usePlan(id);
   const token = useToken(plan.data?.token);
+  const { network } = useWallet();
 
   if (id === null) {
     return <ErrorState error={new Error(`"${params.id}" isn't a plan number.`)} title="Plan not found" />;
@@ -33,11 +75,19 @@ export default function PlanDetailPage({ params }: { params: { id: string } }) {
         <section className="space-y-6">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-3xl font-semibold text-fg">{p.name}</h1>
+              <h1 className="text-3xl font-semibold text-fg">{sanitizePlanName(p.name)}</h1>
               <PlanBadge active={p.active} />
             </div>
             <p className="text-sm text-muted">
-              Plan #{p.id} · merchant <AddressLink address={p.merchant} />
+              Plan #{p.id} · merchant{" "}
+              <a
+                href={explorerAccountUrl(network, p.merchant)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent hover:underline"
+              >
+                {p.merchant}
+              </a>
             </p>
           </div>
 
@@ -74,7 +124,14 @@ export default function PlanDetailPage({ params }: { params: { id: string } }) {
               <dd className="text-right text-fg">
                 {token.data ? `${token.data.symbol} · ${token.data.name}` : "…"}
                 <span className="block">
-                  <AddressLink address={p.token} />
+                  <a
+                    href={explorerContractUrl(network, p.token)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent hover:underline"
+                  >
+                    {p.token}
+                  </a>
                 </span>
               </dd>
             </div>

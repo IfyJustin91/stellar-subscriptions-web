@@ -167,16 +167,30 @@ export function CreatePlanForm({ onCreated }: CreatePlanFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-      <TokenSelect
-        value={token.tokenId}
-        onChange={(selection) =>
-          setToken({
-            tokenId: selection.tokenId,
-            info: selection.info,
-            error: selection.error,
-          })
-        }
-      />
+      <div className="flex flex-col gap-2">
+        <TokenSelect
+          value={token.tokenId}
+          onChange={(selection) =>
+            setToken({
+              tokenId: selection.tokenId,
+              info: selection.info,
+              error: selection.error,
+            })
+          }
+        />
+        <p className="text-xs text-gray-600">
+          Not sure which token to use? Read the{' '}
+          <a
+            href="/docs/token-support.md"
+            className="underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            token support guide
+          </a>{' '}
+          to learn which tokens are accepted and how to find a token contract id.
+        </p>
+      </div>
 
       {tokenBlocked && (
         <p className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">

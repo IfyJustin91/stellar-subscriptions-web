@@ -9,14 +9,47 @@ import {
   decodeStats,
   decodeSubscription,
   getChargeEvents,
+  getTokenMetadata,
+  tokenCacheSize,
+  getTokenInfo,
   toNumber,
 } from "./contracts";
 import * as stellar from "@/lib/stellar";
 import { nativeToScVal, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { SubStatus } from "@/types";
+import { ContractError } from "./contracts";
+import { planFixture, registryStatsFixture } from "@/test/mocks/fixtures";
 
 const mockGetEvents = vi.fn();
 const mockGetHealth = vi.fn();
+const mockGetEvents = jest.fn();
+const mockGetHealth = jest.fn();
+const mockReadContract = jest.fn();
+
+jest.mock("@stellar/stellar-sdk", () => {
+  const actual = jest.requireActual("@stellar/stellar-sdk");
+  return {
+    ...actual,
+    rpc: {
+      ...actual.rpc,
+      Server: jest.fn().mockImplementation(() => ({
+        getEvents: mockGetEvents,
+        getHealth: mockGetHealth,
+      })),
+    },
+    Contract: jest.fn().mockImplementation(() => ({
+      call: jest.fn(),
+    })),
+  };
+});
+
+jest.mock("./stellar", () => {
+  const actual = jest.requireActual("./stellar");
+  return {
+    ...actual,
+    readContract: (...args: unknown[]) => mockReadContract(...args),
+  };
+});
 
 describe("event paging", () => {
   it("reads the ledger a cursor points at", () => {
@@ -103,6 +136,46 @@ describe("decoders", () => {
     try { toNumber(2n ** 60n); } catch (e) { caught = e; }
     expect(caught).toHaveProperty("code", OVERFLOW_CODE);
   });
+
+  it("throws ContractError for values near Number.MAX_SAFE_INTEGER", () => {
+    expect(() => toNumber(BigInt(Number.MAX_SAFE_INTEGER) + 1n)).toThrow(ContractError);
+    expect(() => toNumber(2n ** 60n)).toThrow(ContractError);
+  });
+});
+
+describe("decoder round-trips", () => {
+  it("round-trips a plan fixture through decodePlan", () => {
+    const plan = decodePlan(planFixture);
+    expect(plan).toEqual({
+      id: 3,
+      merchant: MERCHANT,
+      name: "Demo hourly",
+      token: XLM,
+      amountPerPeriod: 10_000_000n,
+      intervalLedgers: 720,
+      defaultCap: 120_000_000n,
+      active: true,
+      createdAt: 4_692_990,
+    });
+  });
+
+  it("round-trips a registry stats fixture through decodeStats", () => {
+    const stats = decodeStats(registryStatsFixture);
+    expect(stats).toEqual({
+      totalPlans: 1,
+      totalSubscriptions: 2,
+      activeSubscriptions: 1,
+      totalChargedVolume: 10_000_000n,
+    });
+  });
+
+  it("throws ContractError when totalChargedVolume is oversized", () => {
+    const oversized = {
+      ...registryStatsFixture,
+      total_charged_volume: BigInt(Number.MAX_SAFE_INTEGER) + 1n,
+    };
+    expect(() => decodeStats(oversized)).toThrow(ContractError);
+  });
 });
 
 // Return values of the read functions as base64 `ScVal` XDR, the form the RPC
@@ -167,6 +240,21 @@ describe("decoder fixtures", () => {
     expect(() => decodeSubscription({ ...rest, cap_total: cap })).toThrow();
     const { total_plans: plans, ...stats } = fixture(STATS_XDR);
     expect(() => decodeStats({ ...stats, plan_count: plans })).toThrow();
+  });
+});
+
+describe("token metadata cache", () => {
+  it("caps the cache at 100 entries and evicts the oldest", async () => {
+    const ids = Array.from(
+      { length: 150 },
+      (_, i) => `C${String(i).padStart(55, "0")}`,
+    );
+    for (const id of ids) {
+      await getTokenMetadata(id, "testnet");
+    }
+    expect(tokenCacheSize()).toBeLessThanOrEqual(100);
+    // The earliest ids were evicted; the most recent ones remain cached.
+    expect(tokenCacheSize()).toBe(100);
   });
 });
 
@@ -259,6 +347,36 @@ function chargedEvent(opts: {
   };
 }
 
+describe("getTokenInfo", () => {
+  beforeEach(() => {
+    mockReadContract.mockReset();
+  });
+
+  it("deduplicates concurrent calls for the same contract id", async () => {
+    mockReadContract.mockImplementation(async (_network: unknown, _id: unknown, method: string) => {
+      if (method === "symbol") return "USDC";
+      if (method === "name") return "USD Coin";
+      if (method === "decimals") return 7;
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const [a, b] = await Promise.all([
+      getTokenInfo("testnet", USDC),
+      getTokenInfo("testnet", USDC),
+    ]);
+
+    expect(a).toEqual(b);
+    expect(a).toMatchObject({ symbol: "USDC", name: "USD Coin", decimals: 7 });
+    // symbol, name and decimals — one set of calls, not two.
+    expect(mockReadContract).toHaveBeenCalledTimes(3);
+
+    // Once settled, the cache serves subsequent callers without new calls.
+    const c = await getTokenInfo("testnet", USDC);
+    expect(c).toEqual(a);
+    expect(mockReadContract).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("getChargeEvents", () => {
   beforeEach(() => {
     mockGetEvents.mockReset();
@@ -282,6 +400,7 @@ describe("getChargeEvents", () => {
         chargedEvent({ id: "1-2", ledger: 4_100_100, amount: 5_000_000n }),
       ],
       cursor: "1-2",
+      latestLedger: 4_100_100,
     });
 
     const result = await getChargeEvents("testnet", MERCHANT);
@@ -314,6 +433,15 @@ describe("getChargeEvents", () => {
         latestLedger: 4_200_000,
       })
       .mockResolvedValueOnce({ events: [], cursor: "18038866938167296-1", latestLedger: 4_200_000 });
+        cursor: "1-1",
+        latestLedger: 4_100_100,
+      })
+      .mockResolvedValueOnce({
+        events: [chargedEvent({ id: "1-2", ledger: 4_100_100, amount: 2n })],
+        cursor: "1-2",
+        latestLedger: 4_100_100,
+      })
+      .mockResolvedValueOnce({ events: [], cursor: "1-2", latestLedger: 4_100_100 });
 
     const result = await getChargeEvents("testnet", MERCHANT);
 
@@ -328,6 +456,7 @@ describe("getChargeEvents", () => {
         chargedEvent({ id: "1-2", ledger: 4_100_100, token: USDC, amount: 3_000_000n }),
       ],
       cursor: "1-2",
+      latestLedger: 4_100_100,
     });
 
     const result = await getChargeEvents("testnet", MERCHANT);
