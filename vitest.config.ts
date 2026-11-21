@@ -6,7 +6,11 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: { "@": fileURLToPath(new URL(".", import.meta.url)) },
-    conditions: ["browser", "module", "import", "default"],
+    // `browser` is intentionally omitted: msw/node exports `browser: null`
+    // which causes vite to fail when `browser` is listed as a condition.
+    // Tests run in jsdom so browser-specific entry points aren't needed;
+    // packages that have only a browser build still resolve via `default`.
+    conditions: ["module", "import", "default"],
   },
   test: {
     environment: "jsdom",
@@ -16,9 +20,10 @@ export default defineConfig({
     exclude: ["node_modules", ".next"],
     server: {
       deps: {
-        // Inline dependencies so their source maps are resolved and stack
-        // traces point to .ts source files rather than compiled .js output.
-        inline: [/node_modules/],
+        // Inline most node_modules so source maps resolve to .ts source files.
+        // Exclude vitest/its runner internals to prevent duplicate module
+        // instances (which break beforeAll/afterAll suite registration).
+        inline: [/node_modules\/(?!vitest|@vitest)/],
       },
     },
     coverage: {
