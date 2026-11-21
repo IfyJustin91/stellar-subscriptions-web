@@ -121,7 +121,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const writeCtx = useCallback(
     (onPhase?: (phase: TxPhase) => void): WriteCtx => {
       const source = addressRef.current;
-      if (!source) throw new Error("Connect your Freighter wallet first.");
+      if (!source) throw new Error("Connect your wallet to continue.");
       if (!walletNetwork) {
         throw new Error("Switch Freighter to Testnet or Mainnet, then try again.");
       }

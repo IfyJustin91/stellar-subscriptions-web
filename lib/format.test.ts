@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { formatAmount, parseAmount } from "./format";
+import { formatAmount, isValidStellarAddress, parseAmount } from "./format";
 
 /**
  * Property tests: formatting a raw amount and parsing it back must yield the
@@ -98,5 +98,33 @@ describe("formatAmount / parseAmount round-trip", () => {
 
     // The shrunk counterexample should be the smallest positive amount.
     expect(smallest).toBe(1n);
+  });
+});
+
+const VALID_ADDRESS = "GBKAVFZ5GCZMMIV3ZKZL5USKFYT5DBBZTY4P5V5J75ANHWTX7GASETK4";
+
+describe("isValidStellarAddress", () => {
+  it("accepts a well-formed G-address", () => {
+    expect(isValidStellarAddress(VALID_ADDRESS)).toBe(true);
+  });
+
+  it("rejects an address with a wrong first character", () => {
+    expect(isValidStellarAddress("XBKAVFZ5GCZMMIV3ZKZL5USKFYT5DBBZTY4P5V5J75ANHWTX7GASETK4")).toBe(false);
+  });
+
+  it("rejects an address that is one character too short", () => {
+    expect(isValidStellarAddress(VALID_ADDRESS.slice(1))).toBe(false);
+  });
+
+  it("rejects an address that is one character too long", () => {
+    expect(isValidStellarAddress(VALID_ADDRESS + "A")).toBe(false);
+  });
+
+  it("rejects an empty string", () => {
+    expect(isValidStellarAddress("")).toBe(false);
+  });
+
+  it("rejects a contract address (C-prefix)", () => {
+    expect(isValidStellarAddress("CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")).toBe(false);
   });
 });
