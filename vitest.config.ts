@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: { "@": fileURLToPath(new URL(".", import.meta.url)) },
-    conditions: ["browser", "module", "import", "default"],
+    conditions: ["node", "browser", "module", "import", "default"],
   },
   test: {
     environment: "jsdom",
