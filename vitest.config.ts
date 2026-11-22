@@ -16,9 +16,11 @@ export default defineConfig({
     exclude: ["node_modules", ".next"],
     server: {
       deps: {
-        // Inline dependencies so their source maps are resolved and stack
+        // Inline most dependencies so their source maps are resolved and stack
         // traces point to .ts source files rather than compiled .js output.
-        inline: [/node_modules/],
+        // vitest's own packages must NOT be inlined — doing so breaks the
+        // suite-context tracking that beforeAll/afterAll rely on.
+        inline: [/node_modules\/(?!vitest)/],
       },
     },
     coverage: {
