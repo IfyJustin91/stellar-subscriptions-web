@@ -35,6 +35,8 @@ export default defineConfig({
     // Drop "browser" so packages that export null for that condition don't
     // break.  "node" first so server-only sub-paths resolve correctly.
     conditions: ["node", "module", "import", "default"],
+    alias: { "@": fileURLToPath(new URL(".", import.meta.url)) },
+    conditions: ["node", "browser", "module", "import", "default"],
   },
   test: {
     environment: "jsdom",
